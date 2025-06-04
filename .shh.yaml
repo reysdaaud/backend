@@ -1,5 +1,0 @@
-Host github.com
-    HostName github.com
-    User git
-    IdentityFile C:/Users/HP EliteBook/Desktop/net/api/eval $(ssh-agent -s)
-    IdentitiesOnly yes
