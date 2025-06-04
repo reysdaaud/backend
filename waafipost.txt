@@ -1,0 +1,23 @@
+{
+    "schemaVersion": "1.0",
+    "requestId": "123678467874653463797456372653",
+    "timestamp": "1345619256",
+    "channelName": "WEB",
+    "serviceName": "API_PURCHASE",
+    "serviceParams": {
+        "merchantUid": "M0910161",
+        "apiUserId": "1000146",
+        "apiKey": "API-1922135978AHX",
+        "paymentMethod": "MWALLET_ACCOUNT",
+        "payerInfo": {
+            "accountNo": "252615515230"
+        },
+        "transactionInfo": {
+            "referenceId": "5656565",
+            "invoiceId": "154",
+            "amount": "1",
+            "currency": "USD",
+            "description": "test"
+        }
+    }
+}
