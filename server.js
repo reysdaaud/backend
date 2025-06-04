@@ -15,7 +15,7 @@ try {
         projectId: process.env.FIREBASE_PROJECT_ID,
         privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      })
+      }),
     });
     console.log('Firebase Admin initialized successfully');
   }
@@ -28,21 +28,19 @@ const db = admin.firestore();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Standard CORS setup
+// Define allowed origins for CORS
 const allowedOrigins = [
-  'http://localhost:9002',
-  'https://backend-aroy.onrender.com',
-  'https://checkout.paystack.com'
+  'http://localhost:9002',              // Local frontend
+  'https://your-frontend-domain.com'    // Replace with your deployed frontend
 ];
 
+// Configure CORS options
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
     } else {
-      return callback(new Error('Not allowed by CORS'));
+      callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
@@ -52,8 +50,7 @@ const corsOptions = {
 
 app.use(express.json());
 app.use(cors(corsOptions));
-// Handle preflight requests for all routes
-app.options('*', cors(corsOptions));
+app.options('*', cors(corsOptions)); // Handle preflight requests
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -80,7 +77,6 @@ app.post('/paystack/initialize', async (req, res) => {
       });
     }
 
-    // Ensure amount is a number
     const numericAmount = Number(amount);
     if (isNaN(numericAmount) || numericAmount <= 0) {
       console.error('[Backend /paystack/initialize] Invalid amount:', amount);
@@ -89,9 +85,9 @@ app.post('/paystack/initialize', async (req, res) => {
 
     const paystackPayload = {
       email,
-      amount: numericAmount * 100, // Convert KES to cents
+      amount: numericAmount * 100, // Convert to cents
       currency: 'KES',
-      callback_url: `http://localhost:9002/`, // Local frontend for testing
+      callback_url: 'http://localhost:9002/', // Frontend URL
       metadata: {
         ...metadata,
       }
@@ -109,7 +105,7 @@ app.post('/paystack/initialize', async (req, res) => {
       }
     );
 
-    console.log('[Backend /paystack/initialize] Paystack initialization successful:', {
+    console.log('[Backend /paystack/initialize] Paystack response:', {
       reference: response.data.data.reference,
       authorization_url: response.data.data.authorization_url,
     });
@@ -117,10 +113,7 @@ app.post('/paystack/initialize', async (req, res) => {
     res.json(response.data);
 
   } catch (error) {
-    console.error('[Backend /paystack/initialize] Payment initialization error:', error.response?.data || error.message);
-    if (error.response) {
-      console.error('[Backend /paystack/initialize] Paystack Error Details:', JSON.stringify(error.response.data, null, 2));
-    }
+    console.error('[Backend /paystack/initialize] Error:', error.response?.data || error.message);
     res.status(500).json({
       status: false,
       message: 'Could not initialize payment',
@@ -128,13 +121,6 @@ app.post('/paystack/initialize', async (req, res) => {
     });
   }
 });
-
-// Root endpoint for Render health
-app.get('/', (req, res) => {
-  res.json({ status: 'Backend is running', timestamp: new Date().toISOString() });
-});
-
-// ... (rest of your endpoints remain unchanged)
 
 // Start server
 const server = app.listen(port, () => {
