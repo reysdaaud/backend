@@ -30,18 +30,31 @@ const port = process.env.PORT || 5000;
 
 // CORS setup
 const allowedOrigins = [
-  'http://localhost:9002', // Your local frontend
-  'https://backend-aroy.onrender.com', // Your Render backend (for server-to-server, if needed)
+  'http://localhost:9002', // Local frontend
+  'https://backend-aroy.onrender.com', // Render backend (for server-to-server, if needed)
   'https://checkout.paystack.com'
 ];
 
-app.use(express.json());
-app.use(cors({
-  origin: allowedOrigins,
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST'],
+  methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
-}));
+};
+
+app.use(express.json());
+app.use(cors(corsOptions));
+
+// Handle preflight requests for all routes
+app.options('*', cors(corsOptions));
 
 // Add security headers
 app.use((req, res, next) => {
