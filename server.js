@@ -33,7 +33,7 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'http://localhost:3000', // Keep if you have other services on 3000
-    'http://localhost:9002', // Your Next.js frontend
+    'https://dhuux.vercel.app', // Your Next.js frontend
     'https://checkout.paystack.com'
   ],
   credentials: true,
