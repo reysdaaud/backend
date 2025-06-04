@@ -28,10 +28,10 @@ const db = admin.firestore();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// CORS setup
+// Standard CORS setup
 const allowedOrigins = [
-  'http://localhost:9002', // Local frontend
-  'https://backend-aroy.onrender.com', // Render backend (for server-to-server, if needed)
+  'http://localhost:9002',
+  'https://backend-aroy.onrender.com',
   'https://checkout.paystack.com'
 ];
 
@@ -52,22 +52,8 @@ const corsOptions = {
 
 app.use(express.json());
 app.use(cors(corsOptions));
-
 // Handle preflight requests for all routes
 app.options('*', cors(corsOptions));
-
-// Add security headers
-app.use((req, res, next) => {
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  next();
-});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -141,6 +127,11 @@ app.post('/paystack/initialize', async (req, res) => {
       error: error.response?.data || error.message
     });
   }
+});
+
+// Root endpoint for Render health
+app.get('/', (req, res) => {
+  res.json({ status: 'Backend is running', timestamp: new Date().toISOString() });
 });
 
 // ... (rest of your endpoints remain unchanged)
