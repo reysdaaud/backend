@@ -45,7 +45,7 @@ app.use(cors({
 app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   // More specific origin handling for Access-Control-Allow-Origin is generally better if possible
-  const allowedOrigins = ['http://localhost:3000', 'http://localhost:9002', 'https://checkout.paystack.com'];
+  const allowedOrigins = ['https://dhuux.vercel.app/', 'https://dhuux.vercel.app/', 'https://checkout.paystack.com'];
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -92,7 +92,7 @@ app.post('/paystack/initialize', async (req, res) => {
       email,
       amount: numericAmount * 100, // Convert KES to cents
       currency: 'KES',
-      callback_url: `http://localhost:9002/`, // Corrected: Your Next.js frontend URL
+      callback_url: `https://dhuux.vercel.app/`, // Corrected: Your Next.js frontend URL
       metadata: {
         ...metadata,
         // custom_fields are good for display on Paystack dashboard,
