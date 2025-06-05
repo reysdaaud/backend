@@ -32,7 +32,7 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors({
   origin: [
-    'http://localhost:3000', // Keep if you have other services on 3000
+    'http://localhost:9002/', // Keep if you have other services on 3000
     'https://dhuux.vercel.app', // Your Next.js frontend
     'https://checkout.paystack.com'
   ],
