@@ -33,8 +33,8 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors({
   origin: [
-    'https://6000-firebase-studio-1746647373282.cluster-oayqgyglpfgseqclbygurw4xd4.cloudworkstations.dev/',
-    'https://dhuux.vercel.app',
+    'https://6000-firebase-studio-1746647373282.cluster-oayqgyglpfgseqclbygurw4xd4.cloudworkstations.dev',
+    'https://6000-firebase-studio-1746647373282.cluster-oayqgyglpfgseqclbygurw4xd4.cloudworkstations.dev',
     'https://checkout.paystack.com'
   ],
   credentials: true,
