@@ -194,7 +194,7 @@ app.get('/paystack/verify/:reference', async (req, res) => {
 });
 
 // Waafi payment initiation endpoint (at /api/waafi/initiate)
-app.post('/api/waafi/initiate', async (req, res) => {
+app.post('/waafi/initiate', async (req, res) => {
   try {
     const waafiPayload = req.body;
     const response = await fetch('https://api.waafipay.net/asm', {
