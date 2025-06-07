@@ -33,8 +33,8 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors({
   origin: [
+    'https://maano-nu.vercel.app',
     'http://localhost:9002',
-    'http://localhost:9002/',
     'https://checkout.paystack.com'
   ],
   credentials: true,
@@ -45,7 +45,7 @@ app.use(cors({
 // Add security headers
 app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  const allowedOrigins = ['https://dhuux.vercel.app', 'https://checkout.paystack.com'];
+  const allowedOrigins = ['https://maano-nu.vercel.app', 'https://checkout.paystack.com'];
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
