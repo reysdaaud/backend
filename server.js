@@ -33,7 +33,7 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors({
   origin: [
-    'https://maano-nu.vercel.app',
+    'https://icasti.com',
     'http://localhost:9002',
     'https://checkout.paystack.com'
   ],
@@ -45,7 +45,7 @@ app.use(cors({
 // Add security headers
 app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  const allowedOrigins = ['https://maano-nu.vercel.app', 'https://checkout.paystack.com'];
+  const allowedOrigins = ['https://icasti.com', 'https://checkout.paystack.com'];
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -86,7 +86,7 @@ app.post('/paystack/initialize', async (req, res) => {
       email,
       amount: numericAmount * 100, // Convert KES to cents
       currency: 'KES',
-      callback_url: `https://dhuux.vercel.app/`,
+      callback_url: `https://icasti.com/`,
       metadata: { ...metadata }
     };
     const response = await axios.post(
