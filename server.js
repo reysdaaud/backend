@@ -33,7 +33,7 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors({
   origin: [
-    'https://minti-main.vercel.app',
+    'https://www.icasti.com',
     'http://icasti.com',
     'https://checkout.paystack.com'
   ],
@@ -86,7 +86,7 @@ app.post('/paystack/initialize', async (req, res) => {
       email,
       amount: numericAmount * 100, // Convert KES to cents
       currency: 'KES',
-      callback_url: `https://minti-main.vercel.app/`,
+      callback_url: `https://www.icasti.com/`,
       metadata: { ...metadata }
     };
     const response = await axios.post(
