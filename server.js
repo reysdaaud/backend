@@ -33,7 +33,7 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors({
   origin: [
-    'https://minti-main.vercel.app/',
+    'https://minti-main.vercel.app',
     'http://icasti.com',
     'https://checkout.paystack.com'
   ],
