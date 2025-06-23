@@ -33,8 +33,8 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors({
   origin: [
+    'http://icasti.com',
     'http://localhost:9002',
-    'http://icasti.com/',
     'https://checkout.paystack.com'
   ],
   credentials: true,
