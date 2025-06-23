@@ -34,7 +34,7 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'https://icasti.com',
-    'http://localhost:9002',
+    'https://icasti.com',
     'https://checkout.paystack.com'
   ],
   credentials: true,
