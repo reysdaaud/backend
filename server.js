@@ -16,7 +16,7 @@ try {
         projectId: process.env.FIREBASE_PROJECT_ID,
         privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      })
+      }),
     });
     console.log('Firebase Admin initialized successfully');
   }
@@ -34,7 +34,7 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'http://localhost:9002',
-    'http://localhost:9002',
+    'https://www.icasti.com',
     'https://checkout.paystack.com'
   ],
   credentials: true,
@@ -45,7 +45,7 @@ app.use(cors({
 // Add security headers
 app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  const allowedOrigins = ['https://www.icasti.com/', 'https://checkout.paystack.com'];
+  const allowedOrigins = ['https://www.icasti.com', 'https://checkout.paystack.com'];
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -61,22 +61,104 @@ app.get('/health', (req, res) => {
   res.json({ status: 'Server is running', timestamp: new Date().toISOString() });
 });
 
-// Paystack configuration
+// ===================== WAAFI ======================
+
+// Waafi payment initiation
+app.post('/api/waafi/initiate', async (req, res) => {
+  try {
+    const waafiPayload = req.body;
+    const response = await fetch('https://api.waafipay.net/asm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(waafiPayload),
+    });
+    const waafiResult = await response.json();
+    if (!response.ok || waafiResult.responseCode !== "2001") {
+      return res.status(500).json({
+        success: false,
+        message: waafiResult.responseMsg || 'Failed to initiate payment with Waafi.',
+        waafiResult,
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      message: waafiResult.responseMsg,
+      waafiResult,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Internal server error.' });
+  }
+});
+
+// Waafi callback
+app.post('/api/waafi/callback', async (req, res) => {
+  try {
+    const callback = req.body;
+    const params = callback?.waafiResult?.params;
+    if (!params || params.state !== 'APPROVED') {
+      return res.status(400).json({ success: false, message: 'Transaction not approved' });
+    }
+
+    const { invoiceId, transactionId, referenceId, txAmount } = params;
+    const userId = invoiceId;
+    const coins = parseInt(txAmount);
+
+    if (!userId || isNaN(coins)) {
+      return res.status(400).json({ success: false, message: 'Invalid data' });
+    }
+
+    const userRef = db.collection('users').doc(userId);
+    await db.runTransaction(async (t) => {
+      const userSnap = await t.get(userRef);
+      const payment = {
+        amount: Number(txAmount),
+        coins,
+        transactionId,
+        reference: referenceId,
+        status: 'success',
+        gateway: 'waafi',
+        timestamp: new Date(),
+      };
+
+      if (!userSnap.exists) {
+        t.set(userRef, {
+          uid: userId,
+          coins,
+          paymentHistory: [payment],
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        const currentCoins = userSnap.data().coins || 0;
+        t.update(userRef, {
+          coins: currentCoins + coins,
+          paymentHistory: admin.firestore.FieldValue.arrayUnion(payment),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    });
+
+    res.json({ success: true, message: 'Coins credited' });
+  } catch (err) {
+    console.error('Callback Error:', err);
+    res.status(500).json({ success: false, message: 'Callback failed' });
+  }
+});
+
+// =================== PAYSTACK (unchanged) ===================
+
+// Paystack setup
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 if (!PAYSTACK_SECRET_KEY) {
   console.error('Missing Paystack secret key in environment variables.');
   process.exit(1);
 }
 
-// Paystack initialization endpoint
 app.post('/paystack/initialize', async (req, res) => {
   try {
     const { email, amount, metadata } = req.body;
     if (!email || !amount) {
-      return res.status(400).json({
-        status: false,
-        message: 'Email and amount are required'
-      });
+      return res.status(400).json({ status: false, message: 'Email and amount are required' });
     }
     const numericAmount = Number(amount);
     if (isNaN(numericAmount) || numericAmount <= 0) {
@@ -84,7 +166,7 @@ app.post('/paystack/initialize', async (req, res) => {
     }
     const paystackPayload = {
       email,
-      amount: numericAmount * 100, // Convert KES to cents
+      amount: numericAmount * 100,
       currency: 'KES',
       callback_url: `http://localhost:9002/`,
       metadata: { ...metadata }
@@ -109,7 +191,6 @@ app.post('/paystack/initialize', async (req, res) => {
   }
 });
 
-// Paystack verify endpoint
 app.get('/paystack/verify/:reference', async (req, res) => {
   const { reference } = req.params;
   try {
@@ -193,33 +274,6 @@ app.get('/paystack/verify/:reference', async (req, res) => {
   }
 });
 
-// Waafi payment initiation endpoint (at /api/waafi/initiate)
-app.post('/api/waafi/initiate', async (req, res) => {
-  try {
-    const waafiPayload = req.body;
-    const response = await fetch('https://api.waafipay.net/asm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(waafiPayload),
-    });
-    const waafiResult = await response.json();
-    if (!response.ok || waafiResult.responseCode !== "2001") {
-      return res.status(500).json({
-        success: false,
-        message: waafiResult.responseMsg || 'Failed to initiate payment with Waafi.',
-        waafiResult,
-      });
-    }
-    return res.status(200).json({
-      success: true,
-      message: waafiResult.responseMsg,
-      waafiResult,
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message || 'Internal server error.' });
-  }
-});
-
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
@@ -233,7 +287,7 @@ app.use((err, req, res, next) => {
 // Start server
 const server = app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
-  console.log('Environment:', process.env.NODE_ENV);
+  console.log('Domain: https://www.icasti.com');
 }).on('error', (err) => {
   console.error('Failed to start server:', err);
   process.exit(1);
