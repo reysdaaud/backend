@@ -168,7 +168,7 @@ app.post('/paystack/initialize', async (req, res) => {
       email,
       amount: numericAmount * 100,
       currency: 'KES',
-      callback_url: `http://localhost:9002/`,
+      callback_url: `https://www.icasti.com/`,
       metadata: { ...metadata }
     };
     const response = await axios.post(
