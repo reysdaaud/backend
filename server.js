@@ -1,5 +1,4 @@
-// Updated backend with proper Paystack callback_url and unified structure
-const express = require('express');
+const express = require('express'); 
 const axios = require('axios');
 const cors = require('cors');
 const admin = require('firebase-admin');
@@ -131,7 +130,7 @@ app.post('/paystack/initialize', async (req, res) => {
       email,
       amount: Number(amount) * 100,
       currency: 'KES',
-      callback_url: `https://www.icasti.com/payment-success?type=paystack`,
+      callback_url: `https://www.icasti.com/payment-success?type=paystack&uid=${metadata.userId}&coins=${metadata.coins}`,
       metadata
     };
 
