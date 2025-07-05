@@ -40,20 +40,27 @@ const db = admin.firestore();
 const app = express();
 const port = PORT || 5000;
 
+// ✅ ALLOWED FRONTENDS
+const allowedOrigins = [
+  'http://localhost:9002',
+  'https://www.icasti.com',
+  'https://checkout.paystack.com'
+];
+
 // Middleware
 app.use(cors({
-  origin: ['https://www.icasti.com', 'https://checkout.paystack.com'],
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST'],
 }));
 app.use(express.json());
 
-// Security headers
+// ✅ SECURITY HEADERS
 app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  const allowedOrigins = ['https://www.icasti.com', 'https://checkout.paystack.com'];
-  if (allowedOrigins.includes(req.headers.origin)) {
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -61,12 +68,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check
+// ========== HEALTH CHECK ==========
 app.get('/health', (req, res) => {
   res.json({ status: 'Server is running', timestamp: new Date().toISOString() });
 });
 
-// ========== STRIPE ========== //
+// ========== STRIPE ==========
 app.post('/stripe/create-intent', async (req, res) => {
   try {
     const { amount, userId, coins, packageName, email, phoneNumber } = req.body;
@@ -171,7 +178,7 @@ app.post('/stripe/verify/:intentId', async (req, res) => {
   }
 });
 
-// ========== WAAFI ========== //
+// ========== WAAFI ==========
 app.post('/api/waafi/initiate', async (req, res) => {
   try {
     const response = await fetch('https://api.waafipay.net/asm', {
@@ -234,7 +241,7 @@ app.post('/api/waafi/callback', async (req, res) => {
   }
 });
 
-// ========== PAYSTACK ========== //
+// ========== PAYSTACK ==========
 app.post('/paystack/initialize', async (req, res) => {
   try {
     const { email, amount, metadata } = req.body;
@@ -317,7 +324,8 @@ app.get('/paystack/verify/:reference', async (req, res) => {
   }
 });
 
-// Start server
+// ========== START SERVER ==========
 app.listen(port, () => {
   console.log(`🚀 Server running at http://localhost:${port}`);
 });
+
