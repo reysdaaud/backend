@@ -148,7 +148,7 @@ app.post('/paystack/initialize', async (req, res) => {
 
     const payload = {
       email,
-      amount: Number(amount) * 100,
+      amount,
       currency: 'KES',
       callback_url: `https://www.icasti.com/payment-success?type=paystack&uid=${metadata.userId}&coins=${metadata.coins}`,
       metadata
@@ -232,7 +232,7 @@ app.post('/stripe/create-intent', async (req, res) => {
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100),
+      amount,
       currency: 'usd',
       metadata: { userId, coins: coins.toString(), packageName, email },
     });
