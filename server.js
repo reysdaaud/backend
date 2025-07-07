@@ -1,30 +1,57 @@
-const express = require('express'); 
+const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const admin = require('firebase-admin');
 const dotenv = require('dotenv');
 const fetch = require('node-fetch');
+const Stripe = require('stripe');
 
 // Load environment variables
 dotenv.config();
 
-// Firebase Admin SDK Init
+const {
+  FIREBASE_PROJECT_ID,
+  FIREBASE_CLIENT_EMAIL,
+  FIREBASE_PRIVATE_KEY,
+  PAYSTACK_SECRET_KEY,
+  STRIPE_SECRET_KEY,
+  PORT
+} = process.env;
+
+if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
+  console.error('❌ Missing Firebase environment variables');
+  process.exit(1);
+}
+if (!PAYSTACK_SECRET_KEY) {
+  console.error('❌ Missing PAYSTACK_SECRET_KEY');
+  process.exit(1);
+}
+if (!STRIPE_SECRET_KEY) {
+  console.error('❌ Missing STRIPE_SECRET_KEY');
+  process.exit(1);
+}
+
+// --- Firebase Admin Init ---
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      projectId: FIREBASE_PROJECT_ID,
+      privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      clientEmail: FIREBASE_CLIENT_EMAIL,
     }),
   });
-  console.log('Firebase Admin initialized');
+  console.log('✅ Firebase Admin initialized');
 }
 const db = admin.firestore();
 
-const app = express();
-const port = process.env.PORT || 5000;
+// --- Stripe Init ---
+const stripe = new Stripe(STRIPE_SECRET_KEY);
+console.log('✅ Stripe initialized');
 
-// Middleware
+const app = express();
+const port = PORT || 5000;
+
+// --- Middleware ---
 app.use(express.json());
 app.use(cors({
   origin: ['https://www.icasti.com', 'https://checkout.paystack.com'],
@@ -33,7 +60,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Security headers
 app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   const allowedOrigins = ['https://www.icasti.com', 'https://checkout.paystack.com'];
@@ -46,12 +72,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check
+// --- Health ---
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// ========== WAAFI ========== //
+// ========== WAAFI ==========
 app.post('/api/waafi/initiate', async (req, res) => {
   try {
     const response = await fetch('https://api.waafipay.net/asm', {
@@ -60,7 +86,7 @@ app.post('/api/waafi/initiate', async (req, res) => {
       body: JSON.stringify(req.body),
     });
     const result = await response.json();
-    if (!response.ok || result.responseCode !== "2001") {
+    if (!response.ok || result.responseCode !== '2001') {
       return res.status(500).json({ success: false, message: result.responseMsg || 'Waafi initiation failed.', result });
     }
     res.status(200).json({ success: true, message: result.responseMsg, result });
@@ -114,13 +140,7 @@ app.post('/api/waafi/callback', async (req, res) => {
   }
 });
 
-// ========== PAYSTACK ========== //
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
-if (!PAYSTACK_SECRET_KEY) {
-  console.error('Missing PAYSTACK_SECRET_KEY');
-  process.exit(1);
-}
-
+// ========== PAYSTACK ==========
 app.post('/paystack/initialize', async (req, res) => {
   try {
     const { email, amount, metadata } = req.body;
@@ -203,8 +223,53 @@ app.get('/paystack/verify/:reference', async (req, res) => {
   }
 });
 
-// Start server
+// ========== STRIPE ==========
+app.post('/stripe/create-intent', async (req, res) => {
+  const { amount, userId, email, coins, packageName } = req.body;
+  try {
+    if (!amount || !userId || !email || !coins || !packageName) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100),
+      currency: 'usd',
+      metadata: { userId, coins: coins.toString(), packageName, email },
+    });
+
+    res.json({ clientSecret: paymentIntent.client_secret });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/stripe/verify/:intentId', async (req, res) => {
+  const { intentId } = req.params;
+  try {
+    const intent = await stripe.paymentIntents.retrieve(intentId);
+    if (intent.status !== 'succeeded') {
+      return res.status(400).json({ success: false, message: `Payment not completed. Status: ${intent.status}` });
+    }
+
+    const { userId, coins, email, packageName } = intent.metadata;
+    if (!userId || !coins) return res.status(400).json({ success: false, message: 'Missing metadata' });
+
+    const coinsToAdd = parseInt(coins, 10);
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const currentCoins = userSnap.data().coins || 0;
+    await userRef.update({ coins: currentCoins + coinsToAdd });
+
+    res.json({ success: true, newBalance: currentCoins + coinsToAdd });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// --- Start Server ---
 app.listen(port, () => {
-  console.log(`Server live at http://localhost:${port}`);
-  console.log(`Live domain: https://www.icasti.com`);
+  console.log(`🚀 Server live at http://localhost:${port}`);
+  console.log(`🌐 Production: https://www.icasti.com`);
 });
