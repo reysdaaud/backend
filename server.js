@@ -1,12 +1,14 @@
+// Final unified server.js with Stripe, Waafi, and Paystack integration
+
 const express = require('express');
 const cors = require('cors');
-const admin = require('firebase-admin');
 const dotenv = require('dotenv');
+const Stripe = require('stripe');
+const admin = require('firebase-admin');
 const axios = require('axios');
 const fetch = require('node-fetch');
-const Stripe = require('stripe');
 
-// Load environment variables
+// Load environment variables from .env
 dotenv.config();
 
 const {
@@ -19,11 +21,11 @@ const {
 } = process.env;
 
 if (!STRIPE_SECRET_KEY || !FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY || !PAYSTACK_SECRET_KEY) {
-  console.error('❌ Missing required environment variables.');
+  console.error('❌ Missing one or more required environment variables.');
   process.exit(1);
 }
 
-const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: '2023-08-16' });
+const stripe = new Stripe(STRIPE_SECRET_KEY);
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -40,292 +42,170 @@ const db = admin.firestore();
 const app = express();
 const port = PORT || 5000;
 
-// ✅ ALLOWED FRONTENDS
-const allowedOrigins = [
-  'http://localhost:9002',
-  'https://www.icasti.com',
-  'https://checkout.paystack.com'
-];
-
-// Middleware
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
-  methods: ['GET', 'POST'],
-}));
+app.use(cors());
 app.use(express.json());
 
-// ✅ SECURITY HEADERS
-app.use((req, res, next) => {
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  next();
-});
-
-// ========== HEALTH CHECK ==========
+// Health
 app.get('/health', (req, res) => {
-  res.json({ status: 'Server is running', timestamp: new Date().toISOString() });
+  res.json({ status: 'Server is healthy', time: new Date().toISOString() });
 });
 
-// ========== STRIPE ==========
+// STRIPE CREATE INTENT
 app.post('/stripe/create-intent', async (req, res) => {
+  const { amount, userId, email, coins, packageName } = req.body;
+  if (!amount || !userId || !email || !coins || !packageName) {
+    return res.status(400).json({ error: 'Missing required fields.' });
+  }
+
   try {
-    const { amount, userId, coins, packageName, email, phoneNumber } = req.body;
-
-    if (!amount || !userId || !coins || !email) {
-      return res.status(400).json({ error: 'Missing required fields: amount, userId, coins, email.' });
-    }
-
-    const finalAmount = Math.round(Number(amount) * 100);
-    if (isNaN(finalAmount) || finalAmount <= 0) {
-      return res.status(400).json({ error: 'Amount must be a positive number.' });
-    }
-
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: finalAmount,
+      amount: Math.round(amount * 100),
       currency: 'usd',
-      receipt_email: email,
-      metadata: {
-        userId,
-        coins: coins.toString(),
-        packageName: packageName || 'Default Package',
-        phone: phoneNumber || 'n/a',
-      },
+      metadata: { userId, coins: coins.toString(), email, packageName },
     });
-
-    res.status(200).json({ clientSecret: paymentIntent.client_secret });
-  } catch (error) {
-    console.error('❌ Stripe PaymentIntent Error:', error.message);
-    res.status(500).json({ error: 'Failed to create payment intent.', detail: error.message });
+    res.json({ clientSecret: paymentIntent.client_secret });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
+// STRIPE VERIFY
 app.post('/stripe/verify/:intentId', async (req, res) => {
   const { intentId } = req.params;
-
   try {
     const intent = await stripe.paymentIntents.retrieve(intentId);
-    if (intent.status !== 'succeeded') {
-      return res.status(400).json({ success: false, message: 'Payment not completed.' });
-    }
+    if (intent.status !== 'succeeded') return res.status(400).json({ success: false, message: 'Payment not completed' });
 
-    const metadata = intent.metadata || {};
-    const userId = metadata.userId;
-    const coinsToAdd = parseInt(metadata.coins || '0');
-    const packageName = metadata.packageName || 'N/A';
-
-    if (!userId || isNaN(coinsToAdd) || coinsToAdd <= 0) {
-      return res.status(400).json({ success: false, message: 'Invalid or missing metadata.' });
-    }
-
+    const { userId, coins } = intent.metadata;
+    const coinsToAdd = parseInt(coins);
     const userRef = db.collection('users').doc(userId);
-    const txRef = db.collection('transactions').doc(intentId);
 
-    await db.runTransaction(async (transaction) => {
-      const txDoc = await transaction.get(txRef);
-      if (txDoc.exists) return;
-
-      const userDoc = await transaction.get(userRef);
-      const currentCoins = userDoc.exists ? (userDoc.data().coins || 0) : 0;
-      const updatedCoins = currentCoins + coinsToAdd;
-
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(userRef);
+      const prev = snap.exists ? snap.data().coins || 0 : 0;
+      const newBalance = prev + coinsToAdd;
       const paymentData = {
         amount: intent.amount / 100,
         coins: coinsToAdd,
-        timestamp: new Date(),
         reference: intentId,
         gateway: 'stripe',
         status: 'success',
-        packageName,
-        receiptUrl: intent.charges?.data?.[0]?.receipt_url || null,
-        cardBrand: intent.charges?.data?.[0]?.payment_method_details?.card?.brand || null,
-      };
-
-      if (!userDoc.exists) {
-        transaction.set(userRef, {
-          uid: userId,
-          coins: updatedCoins,
-          paymentHistory: [paymentData],
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      } else {
-        transaction.update(userRef, {
-          coins: updatedCoins,
-          paymentHistory: admin.firestore.FieldValue.arrayUnion(paymentData),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-
-      transaction.set(txRef, {
-        userId,
-        coinsAdded: coinsToAdd,
-        status: 'success',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    });
-
-    res.json({ success: true, message: 'Coins added successfully.', coins: coinsToAdd });
-  } catch (err) {
-    console.error('❌ Stripe verification error:', err.message);
-    res.status(500).json({ success: false, message: 'Verification failed', error: err.message });
-  }
-});
-
-// ========== WAAFI ==========
-app.post('/api/waafi/initiate', async (req, res) => {
-  try {
-    const response = await fetch('https://api.waafipay.net/asm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body),
-    });
-    const result = await response.json();
-    if (!response.ok || result.responseCode !== "2001") {
-      return res.status(500).json({ success: false, message: result.responseMsg || 'Waafi initiation failed.', result });
-    }
-    res.status(200).json({ success: true, message: result.responseMsg, result });
-  } catch (e) {
-    res.status(500).json({ success: false, message: e.message });
-  }
-});
-
-app.post('/api/waafi/callback', async (req, res) => {
-  try {
-    const { waafiResult } = req.body;
-    const params = waafiResult?.params;
-    if (!params || params.state !== 'APPROVED') return res.status(400).json({ success: false, message: 'Not approved' });
-
-    const { invoiceId: userId, transactionId, referenceId, txAmount } = params;
-    const coins = parseInt(txAmount);
-    if (!userId || isNaN(coins)) return res.status(400).json({ success: false, message: 'Invalid data' });
-
-    const userRef = db.collection('users').doc(userId);
-    await db.runTransaction(async (t) => {
-      const snap = await t.get(userRef);
-      const payment = {
-        amount: coins,
-        coins,
-        transactionId,
-        reference: referenceId,
-        status: 'success',
-        gateway: 'waafi',
         timestamp: new Date(),
       };
       if (!snap.exists) {
-        t.set(userRef, {
-          uid: userId,
-          coins,
-          paymentHistory: [payment],
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        t.set(userRef, { uid: userId, coins: newBalance, paymentHistory: [paymentData] });
       } else {
         t.update(userRef, {
-          coins: (snap.data().coins || 0) + coins,
-          paymentHistory: admin.firestore.FieldValue.arrayUnion(payment),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          coins: newBalance,
+          paymentHistory: admin.firestore.FieldValue.arrayUnion(paymentData),
         });
       }
     });
-    res.json({ success: true, message: 'Coins credited' });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, message: 'Callback error' });
+
+    res.json({ success: true, message: 'Coins added', coins: coinsToAdd });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ========== PAYSTACK ==========
+// PAYSTACK INITIALIZE
 app.post('/paystack/initialize', async (req, res) => {
-  try {
-    const { email, amount, metadata } = req.body;
-    if (!email || !amount) return res.status(400).json({ status: false, message: 'Email and amount required' });
+  const { email, amount, metadata } = req.body;
+  if (!email || !amount || !metadata?.userId || !metadata.coins) return res.status(400).json({ error: 'Missing required fields' });
 
+  try {
     const payload = {
       email,
-      amount: Number(amount) * 100,
+      amount: amount * 100,
       currency: 'KES',
       callback_url: `https://www.icasti.com/payment-success?type=paystack&uid=${metadata.userId}&coins=${metadata.coins}`,
       metadata
     };
-
-    const paystackRes = await axios.post('https://api.paystack.co/transaction/initialize', payload, {
-      headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
+    const response = await axios.post('https://api.paystack.co/transaction/initialize', payload, {
+      headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` }
     });
-    res.json(paystackRes.data);
+    res.json(response.data);
   } catch (e) {
-    res.status(500).json({ status: false, message: 'Initialization failed', error: e.response?.data || e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
+// PAYSTACK VERIFY
 app.get('/paystack/verify/:reference', async (req, res) => {
   const { reference } = req.params;
   try {
-    const verifyRes = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
-      headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
+    const response = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
+      headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` }
     });
+    const tx = response.data;
+    if (tx.data.status !== 'success') return res.status(400).json({ success: false });
 
-    const tx = verifyRes.data;
-    if (!tx.status || tx.data.status !== 'success') return res.status(400).json({ status: false, message: 'Transaction not successful' });
-
-    const { email, metadata, amount } = tx.data;
-    if (!metadata?.userId || !metadata.coins) return res.status(200).json({ ...tx, internal_message: 'Missing metadata' });
-
-    const userRef = db.collection('users').doc(metadata.userId);
+    const { metadata, amount } = tx.data;
     const coins = parseInt(metadata.coins);
+    const userRef = db.collection('users').doc(metadata.userId);
 
     await db.runTransaction(async (t) => {
-      const userSnap = await t.get(userRef);
+      const snap = await t.get(userRef);
+      const prev = snap.exists ? snap.data().coins || 0 : 0;
       const paymentData = {
         amount: amount / 100,
         coins,
-        timestamp: new Date(),
-        reference,
         gateway: 'paystack',
         status: 'success',
-        packageName: metadata.packageName || 'N/A',
+        reference,
+        timestamp: new Date()
       };
-
-      if (!userSnap.exists) {
-        t.set(userRef, {
-          uid: metadata.userId,
-          email: email || metadata.userEmail,
-          name: metadata.userName || 'New User',
-          coins,
-          paymentHistory: [paymentData],
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+      if (!snap.exists) {
+        t.set(userRef, { uid: metadata.userId, coins, paymentHistory: [paymentData] });
       } else {
-        const currentCoins = userSnap.data().coins || 0;
         t.update(userRef, {
-          coins: currentCoins + coins,
+          coins: prev + coins,
           paymentHistory: admin.firestore.FieldValue.arrayUnion(paymentData),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
     });
-
-    res.json({ ...tx, internal_message: 'Coins credited' });
+    res.json({ success: true });
   } catch (e) {
-    res.status(500).json({ status: false, message: 'Verification failed', error: e.response?.data || e.message });
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
-// ========== START SERVER ==========
-app.listen(port, () => {
-  console.log(`🚀 Server running at http://localhost:${port}`);
+// WAAFI CALLBACK
+app.post('/api/waafi/callback', async (req, res) => {
+  const { waafiResult } = req.body;
+  const params = waafiResult?.params;
+  if (!params || params.state !== 'APPROVED') return res.status(400).json({ success: false });
+
+  const { invoiceId: userId, transactionId, referenceId, txAmount } = params;
+  const coins = parseInt(txAmount);
+  if (!userId || isNaN(coins)) return res.status(400).json({ success: false });
+
+  const userRef = db.collection('users').doc(userId);
+  await db.runTransaction(async (t) => {
+    const snap = await t.get(userRef);
+    const prev = snap.exists ? snap.data().coins || 0 : 0;
+    const payment = {
+      coins,
+      amount: coins,
+      transactionId,
+      reference: referenceId,
+      status: 'success',
+      gateway: 'waafi',
+      timestamp: new Date(),
+    };
+    if (!snap.exists) {
+      t.set(userRef, { uid: userId, coins, paymentHistory: [payment] });
+    } else {
+      t.update(userRef, {
+        coins: prev + coins,
+        paymentHistory: admin.firestore.FieldValue.arrayUnion(payment),
+      });
+    }
+  });
+  res.json({ success: true });
 });
 
+// Start server
+app.listen(port, () => {
+  console.log(`🚀 Server listening at http://localhost:${port}`);
+});
