@@ -124,7 +124,7 @@ app.post('/paystack/initialize', async (req, res) => {
       email,
       amount: Number(amount) * 100,
       currency: 'KES',
-      callback_url: `https://www.icasti.com/payment-success?type=paystack&uid=${metadata.userId}&coins=${metadata.coins}`,
+      callback_url: `https://www.netbeins.com/payment-success?type=paystack&uid=${metadata.userId}&coins=${metadata.coins}`,
       metadata
     };
 
